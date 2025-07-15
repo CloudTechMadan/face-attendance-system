@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Face Attendance System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Serverless Face Attendance System</h1>
+    <p class="description">Real-time face detection and attendance logging using AWS Rekognition & S3.</p>
+
+    <video id="video" width="320" autoplay muted></video>
+    <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+
+    <div class="controls">
+      <button onclick="capture()">📷 Capture & Upload</button>
+    </div>
+
+    <p id="status">Camera ready. Click capture to mark attendance.</p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
