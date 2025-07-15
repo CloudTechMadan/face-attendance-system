@@ -1,46 +1,58 @@
-// Initialize camera
+const attendanceApi = 'https://jprbceq0dk.execute-api.us-east-1.amazonaws.com/markAttendance';
+const presignUrlApi = 'https://jprbceq0dk.execute-api.us-east-1.amazonaws.com/getPresignedUrl';
+
+// Start webcam
 navigator.mediaDevices.getUserMedia({ video: true })
   .then(stream => document.getElementById('video').srcObject = stream)
   .catch(err => {
-    console.error('Camera access error:', err);
+    console.error('Camera error:', err);
     document.getElementById('status').textContent = 'Camera access denied!';
   });
 
-// Capture image from video
 function capture() {
-  const canvas = document.getElementById('canvas');
   const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
   const status = document.getElementById('status');
 
-  const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   canvas.toBlob(async (blob) => {
-    const fileName = `user_${Date.now()}.jpg`;
+    const fileName = `attendance/${Date.now()}.jpg`;
+    status.textContent = 'Uploading...';
 
     try {
-      // TODO: Fetch pre-signed URL from backend/Lambda
-      const s3Url = 'YOUR_S3_PRESIGNED_URL'; // Replace via API call
+      // Get presigned URL from Lambda
+      const presignResp = await fetch(presignUrlApi, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: fileName })
+      });
 
-      const response = await fetch(s3Url, {
+      const { url } = await presignResp.json();
+
+      // Upload image to S3
+      const uploadResp = await fetch(url, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'image/jpeg'
-        },
+        headers: { 'Content-Type': 'image/jpeg' },
         body: blob
       });
 
-      if (response.ok) {
-        status.textContent = 'Image uploaded. Waiting for face match result...';
+      if (!uploadResp.ok) throw new Error('Upload failed');
 
-        // Optional: Notify backend to trigger Rekognition and poll for result
-        // await fetch('/triggerRekognition?fileName=' + encodeURIComponent(fileName));
-      } else {
-        status.textContent = 'Upload failed. Try again.';
-      }
-    } catch (error) {
-      console.error('Upload error:', error);
-      status.textContent = 'Error occurred during upload.';
+      // Call markAttendance with S3 key
+      const attendanceResp = await fetch(attendanceApi, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ s3Key: fileName })
+      });
+
+      const result = await attendanceResp.text();
+      status.textContent = result;
+
+    } catch (err) {
+      console.error('Error:', err);
+      status.textContent = '❌ Something went wrong.';
     }
   }, 'image/jpeg');
 }
