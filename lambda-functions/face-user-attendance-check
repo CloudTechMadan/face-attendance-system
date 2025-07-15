@@ -1,0 +1,77 @@
+import boto3
+import datetime
+import json
+import base64
+
+# AWS Clients
+s3 = boto3.client('s3')
+rekognition = boto3.client('rekognition')
+dynamodb = boto3.resource('dynamodb')
+
+# Constants
+BUCKET = 'face-attendance-system-using-rek'
+COLLECTION_ID = 'employee-faces'
+ATTENDANCE_TABLE = 'AttendanceTable'
+USERS_TABLE = 'UsersTable'
+
+def lambda_handler(event, context):
+    try:
+        # Decode body if base64 encoded
+        body = event.get('body')
+        if event.get('isBase64Encoded'):
+            body = base64.b64decode(body).decode('utf-8')
+
+        data = json.loads(body)
+        s3_key = data.get('s3Key')
+        if not s3_key:
+            return {"statusCode": 400, "body": "Missing s3Key in request"}
+
+        # Get image from S3
+        s3_response = s3.get_object(Bucket=BUCKET, Key=s3_key)
+        image_bytes = s3_response['Body'].read()
+
+        # Rekognition face match
+        rekog_response = rekognition.search_faces_by_image(
+            CollectionId=COLLECTION_ID,
+            Image={'Bytes': image_bytes},
+            MaxFaces=1,
+            FaceMatchThreshold=90
+        )
+
+        if not rekog_response['FaceMatches']:
+            return {"statusCode": 404, "body": "Face not recognized"}
+
+        face_id = rekog_response['FaceMatches'][0]['Face']['FaceId']
+
+        # Look up user in UsersTable using FaceId
+        users_table = dynamodb.Table(USERS_TABLE)
+        response = users_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('FaceId').eq(face_id)
+        )
+
+        if not response['Items']:
+            return {"statusCode": 404, "body": "FaceId not found in UsersTable"}
+
+        user = response['Items'][0]
+        employee_id = user.get('EmployeeID')
+        name = user.get('Name')
+
+        # Log to AttendanceTable
+        timestamp = datetime.datetime.utcnow().isoformat()
+        attendance_table = dynamodb.Table(ATTENDANCE_TABLE)
+        attendance_table.put_item(Item={
+            'EmployeeID': employee_id,
+            'Name': name,
+            'Timestamp': timestamp
+        })
+
+        return {
+            "statusCode": 200,
+            "body": f"✅ Attendance marked for {name} (ID: {employee_id}) at {timestamp}"
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": str(e)
+        }
